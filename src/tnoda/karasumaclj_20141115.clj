@@ -4,7 +4,7 @@
 
 (def scale 5)
 
-(def size 200)
+(def size 100)
 
 (def c (chan (sliding-buffer 10000)))
 
