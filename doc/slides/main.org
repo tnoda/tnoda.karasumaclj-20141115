@@ -1,0 +1,928 @@
+# -*- org-src-fontify-natively: t -*-
+#+STARTUP: beamer
+#+TITLE: Yet another introduction to core.async
+#+AUTHOR: Takahrio Noda (@tnoda)
+#+DATE: 2014-11-15 Sat
+#+LATEX_CLASS: beamer
+#+BEAMER_THEME: default
+#+BEAMER_COLOR_THEME: orchid
+#+OPTIONS: toc:nil H:2
+
+* Intro
+** Outline
+   
+#+BEAMER: \Large
+   
++ Queue
++ Blocking/Non-blocking
++ Secret Alien Technology
+
+#+BEAMER: \normalsize
+
+* Queue
+
+** Producers and consumers
+
+#+begin_src dot :file producers-and-consumers.eps
+  digraph sample {
+    rankdir="LR"
+    {p1, p2, p3, p4, p5} -> {c1, c2, c3, c4, c5}
+  }  
+#+end_src
+
+#+attr_latex: :height 0.7\textheight
+#+RESULTS:
+[[file:producers-and-consumers.eps]]
+
+
+** Queue
+
+#+begin_src dot :file producers-and-queue-and-consumers.eps
+  digraph sample {
+    rankdir="LR"
+    {p1, p2, p3, p4, p5} -> Queue -> {c1, c2, c3, c4, c5}
+  }  
+#+end_src
+
+#+attr_latex: :height 0.7\textheight
+#+RESULTS:
+
+
+** java.util.concurrent.LinkedBlockingQueue
+
+#+begin_src ditaa :file LinkedBlockingQueue.eps
+              +----------------------+
+  +------+    |                      |    +-------+
+  | .put |--->|  LinkedBlockingQueue |--->| .take |
+  +------+    |                      |    +-------+
+              +----------------------+            
+#+end_src
+
+#+RESULTS:
+[[file:LinkedBlockingQueue.eps]]
+
+
+*** Clojure                                                       :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+begin_src clojure
+user> (import 'java.util.concurrent.LinkedBlockingQueue)
+java.util.concurrent.LinkedBlockingQueue
+
+user> (def q (LinkedBlockingQueue.))
+#'user/q
+
+#+end_src
+
+** .put/.take
+*** Clojure                                                       :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+begin_src clojure
+user> (.put q 1)
+nil
+
+user> (.put q "foo")
+nil
+
+user> (.take q)
+1
+
+user> (.take q)
+"foo"
+
+#+end_src
+
+** clojure.core.async/chan
+
+#+begin_src ditaa :file chan.eps
+              +----------------------+
+  +------+    |                      |    +-------+
+  | put! |--->|        chan          |--->| take! |
+  +------+    |                      |    +-------+
+              +----------------------+
+#+end_src
+
+*** require                                                       :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+#+begin_src clojure
+user> (require '[clojure.core.async
+                :refer [chan put! take!]
+                :as async])
+nil
+
+user> (def c (chan))
+#'user/c
+
+#+end_src
+
+
+
+** put!/take! (1/2)
+
+*** put! and take!                                                :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+#+begin_src clojure
+user> (put! c 1)
+true
+
+user> (put! c 2)
+true
+
+user> (take! c println)
+1
+nil
+
+user> (take! c println)
+2
+nil
+
+#+end_src
+
+** put!/take! (2/2)
+
+
+
+*** Asynchronous                                            :B_example:BMCOL:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :BEAMER_col: 0.7
+   :END:
+
+#+BEAMER: \small
+
+#+begin_src clojure
+user> (take! c #(println "Got first:" %))
+nil
+
+user> (take! c #(println "Got second:" %))
+nil
+
+user> (put! c 11)
+true
+
+user> (put! c 12)
+true
+
+#+end_src
+
+*** ~*nrepl-server*~                                          :B_block:BMCOL:
+   :PROPERTIES:
+   :BEAMER_col: 0.3
+   :BEAMER_env: block
+   :END:
+
+#+BEAMER: \small
+
+#+begin_src clojure
+;
+;
+;
+;
+;
+;
+;
+Got first: 11
+;
+;
+Got second: 12
+
+#+end_src
+
+#+BEAMER: \normalsize
+
+** close! (1/2)
+
+
+#+begin_src ditaa :file close.eps
+              +----------------------+
+  +------+    |                      |    +-------+
+  | put! |-X->|        chan          |--->| take! |
+  +------+    |                      |    +-------+
+              +----------------------+
+#+end_src
+
+#+RESULTS:
+[[file:LinkedBlockingQueue.eps]]
+
+
+
+
+*** require                                                       :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+begin_src clojure
+user> (require '[clojure.core.async
+                :refer [chan put! take! close!]
+                :as async])
+nil
+
+user> (def c (chan))
+#'user/c
+
+#+end_src
+
+
+** close! (2/2)
+
+*** close!                                                        :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+BEAMER: \small
+
+#+begin_src clojure
+user> (put! c 1)
+true
+
+user> (close! c)
+nil
+
+user> (put! c 2)
+false
+
+user> (take! c println)
+1
+nil
+
+user> (take! c println)
+nil
+nil
+
+#+end_src
+
+#+BEAMER: \normalsize
+
+#+RESULTS:
+[[file:LinkedBlockingQueue.eps]]
+
+** Overflow
+
+*** Pending puts                                                  :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+#+begin_src clojure
+user> (def c (chan))
+#'user/c
+
+user> (dorun (repeatedly #(put! c 42)))
+AssertionError Assert failed: No more than
+1024 pending puts are allowed on a single
+channel. Consider using a windowed buffer.
+(< (.size puts) impl/MAX-QUEUE-SIZE)
+clojure.core.async.impl.channels.ManyToManyChannel
+(channels.clj:150)
+
+#+end_src
+
+
+
+
+** dropping-buffer
+
+*** dropping-buffer                                               :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+begin_src clojure
+user> (require '[clojure.core.async
+                 :refer [chan put! take! close!
+                         dropping-buffer]
+                 :as async])
+nil
+
+user> (def c (chan (dropping-buffer 3)))
+#'user/c
+
+user> (dotimes [n 10000] (put! c n))
+nil
+
+user> (dotimes  [_ 3] (take! c #(print % "| ")))
+0 | 1 | 2 | 
+nil
+
+#+end_src
+
+#+RESULTS:
+[[file:LinkedBlockingQueue.eps]]
+
+
+** sliding-buffer
+
+*** sliding-buffer                                                :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+#+begin_src clojure
+user> (require '[clojure.core.async
+                 :refer [chan put! take! close!
+                         sliding-buffer]
+                 :as async])
+nil
+
+user> (def c (chan (sliding-buffer 3)))
+#'user/c
+
+user> (dotimes [n 10000] (put! c n))
+nil
+
+user> (dotimes  [_ 3] (take! c #(print % "| ")))
+9997 | 9998 | 9999 | 
+nil
+
+#+end_src
+
+
+** default chan
+
+*** default chan                                                  :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+#+begin_src clojure
+user> (require '[clojure.core.async
+                 :refer [chan put! take! close!]
+                 :as async])
+nil
+
+user> (def c (chan))
+#'user/c
+
+user> (dotimes [n 1024] (put! c n))
+nil
+
+user> (put! c 1024)
+AssertionError Assert failed: ...
+
+#+end_src
+
+#+RESULTS:
+[[file:LinkedBlockingQueue.eps]]
+
+** fixed-size buffer (size == 0)
+
+*** buffer                                                        :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+#+begin_src clojure
+  user> (require '[clojure.core.async
+                   :refer [chan put! take! close!
+                           buffer]
+                   :as async])
+  nil
+
+  user> (def c (chan (buffer 0)))
+  #'user/c
+
+  user> (dotimes [n 1024] (put! c n))
+  nil
+
+  user> (put! c 1024)
+  AssertionError Assert failed: ...
+
+#+end_src
+
+** fixed-size buffer (size == 10)
+
+*** buffer                                                        :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+begin_src clojure
+user> (def c (chan (buffer 10)))
+#'user/c
+
+user> (dotimes [n 1024] (put! c n))
+nil
+
+user> (dotimes [n 1024] (put! c n (println n)))
+0
+1
+2
+.
+.
+.
+10
+AssertionError Assert failed: ...
+
+#+end_src
+
+** Parking puts
+#+begin_src ditaa :file parking-puts.eps
+                            +------------------+
+  +------+                  |                  |    +-------+
+  |      |    +-+-+-=-+-+   :    +-+-+-=-+-+   |    |       |
+  | put! |--->| | |   | |---|--->| | |   | |---|--->| take! |
+  |      |    +-+-+---+-+   :    +-+-+---+-+   |    |       |
+  +------+      Parking     |      Buffer      |    +-------+
+              (up to 1024)  |                  |
+                            +------------------+
+                                  Channel      
+#+end_src
+
+#+RESULTS:
+[[file:parking-puts.eps]]
+
+** Checkpoint 1
+
+*** ~chan~
+- ~puts!~
+- ~take!~
+- ~close!~
+
+
+*** ~buffer~
+
+#+BEGIN_QUOTE
+No more than 1024 pending puts are allowed on a single channel.
+#+END_QUOTE
+
+- ~dropping-buffer~
+- ~sliding-buffer~
+- ~buffer~
+  - default (size == 0)
+
+
+
+* Blocking/Non-Blocking
+
+** Return value
+
+
+*** LinkedBlockingQueue
+
+#+begin_src ditaa :file LinkedBlockingQueue-returns-value.eps
+              +----------------------+                 
+  +------+    |                      |    +-------+    
+  | .put |--->|  LinkedBlockingQueue |--->| .take |---> value
+  +------+    |                      |    +-------+     
+              +----------------------+            
+#+end_src
+
+
+*** chan
+
+#+begin_src ditaa :file take-returns-nil.eps
+              +----------------------+
+  +------+    |                      |    +-------+
+  | put! |--->|        chan          |--->| take! |-=-->  nil 
+  +------+    |                      |    +-------+
+              +----------------------+
+#+end_src
+
+
+** ~>!!~ and ~<!!~
+
+*** Blocking-put and blocking-take                                :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+BEAMER: \small
+
+#+begin_src clojure
+  user> (put! c 1)
+  true
+
+  user> (put! c 2)
+  true
+
+  user> (<!! c)
+  1
+
+  user> (<!! c)
+  2
+
+  user> (>!! c 3)  ; will be blocked
+
+#+end_src
+
+#+BEAMER: \normalsize
+
+** Return values
+
+*** ~nil~ (callback)                                                :B_block:
+    :PROPERTIES:
+    :BEAMER_env: block
+    :END:
+- ~put!~ / ~take!~
+*** Value                                                           :B_block:
+    :PROPERTIES:
+    :BEAMER_env: block
+    :END:
+  - ~>!!~ / ~<!!~
+*** Channel                                                         :B_block:
+    :PROPERTIES:
+    :BEAMER_env: block
+    :END:
+  - ~chan~
+  - ???
+  - ???
+  - ???
+
+** Thread
+
+*** future                                                        :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+begin_src clojure
+  user> (def f #(-> (apply *' (range 1 100000))
+                    (rem 1000000009)))
+  #'user/f
+
+  user> (def c (chan))
+  #'user/c
+
+  user> (future (>!! c (f)))
+  #<core$future_call$reify__6320@47e6951e: :pending>
+
+  user> (<!! c)
+  722570113N
+
+#+end_src
+
+** thread
+
+*** thread                                                        :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+
+#+begin_src clojure
+  user> (<!! (thread (f)))
+  722570113N
+
+#+end_src
+
+** timeout
+
+*** Thread/sleep and future                                       :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+#+begin_src clojure
+  user> (def c (let [ch (chan)]
+                 (future
+                   (Thread/sleep 3000)
+                   (close! ch))
+                 ch))
+  #'user/c
+
+  user> (<!! c)
+  nil
+
+#+end_src
+
+*** timeout                                                       :B_example:
+   :PROPERTIES:
+   :BEAMER_env: example
+   :END:
+#+begin_src clojure
+  user> (<!! (timeout 3000))
+  nil
+
+#+end_src
+
+** Checkpoint 2
+
+*** Blocking/Non-blocking                                           :B_block:
+   :PROPERTIES:
+   :BEAMER_env: block
+   :END:
+
+|                  | Blocking | Return value     |
+|------------------+----------+------------------|
+| ~put!~,  ~take!~ | No       | ~nil~ (callback) |
+| ~>!!~, ~<!!~     | Yes      | value            |
+
+*** Functions that return a channel
+
++ ~chan~
++ ~thread~
++ ~timeout~
++ ???
+
+* Go blocks
+
+** Promise
+
+#+begin_src dot :file promise-backed-blocking-puts-and-takes.eps
+  digraph sample {
+    rankdir = "LR"
+    bp1 [shape = box, label = ">!!"]
+    bp2 [shape = box, label = ">!!"]
+    bt1 [shape = box, label = "<!!"]
+    bt2 [shape = box, label = "<!!"]
+    p1 [shape = box, label = "promise"]
+    p2 [shape = box, label = "promise"]
+    p3 [shape = box, label = "promise"]
+    p4 [shape = box, label = "promise"]
+    t1 [label = "OS thread"]
+    t2 [label = "OS thread"]
+    t3 [label = "OS thread"]
+    t4 [label = "OS thread"]
+    bp1 -> p1 -> t1
+    bt1 -> p2 -> t2
+    bp2 -> p3 -> t3
+    bt2 -> p4 -> t4
+  }
+
+#+end_src
+#+attr_latex: :height 0.5\textheight
+#+results:
+
+** Secret Alien Technology
+
+#+begin_src dot :file secret-alien-technology.eps
+  digraph sample {
+    rankdir = "LR"
+    bp1 [shape = box, label = ">!"]
+    bp2 [shape = box, label = ">!"]
+    bt1 [shape = box, label = "<!"]
+    bt2 [shape = box, label = "<!"]
+    p1 [label = "???"]
+    p2 [label = "???"]
+    p3 [label = "???"]
+    p4 [label = "???"]
+    tp [label = "Thread\nPool"]
+    t1 [label = "OS thread"]
+    t2 [label = "OS thread"]
+    bp1 -> p1 -> tp
+    bt1 -> p2 -> tp
+    bp2 -> p3 -> tp
+    bt2 -> p4 -> tp
+    tp -> t1
+    tp -> t2
+  }
+
+#+end_src
+#+attr_latex: :height 0.5\textheight
+#+results:
+
+** go
+
+*** go block                                                        :B_block:
+    :PROPERTIES:
+    :BEAMER_env: block
+    :END:
+#+begin_src clojure
+  (go
+    ; do >! or <! here
+    )
+#+end_src
+
+*** return value                                                  :B_example:
+    :PROPERTIES:
+    :BEAMER_env: example
+    :END:
+
+#+beamer: \small
+
+#+begin_src clojure
+  user> (def f #(-> (apply *' (range 1 100000))
+                    (rem 1000000009)))
+  #'user/f
+
+  user> (go (f))
+  #<ManyToManyChannel clojure.core.async.impl.channels.ManyToManyChannel@5d14d60f>
+
+  user> (<!! (go (f)))
+  722570113N
+
+#+end_src
+
+
+
+** 10k go-blocks demo
+
+#+attr_latex: :height 0.7\textheight
+[[file:./quil.png]]
+
+
+** Go blocks
+
+*** Quil                                                          :B_example:
+    :PROPERTIES:
+    :BEAMER_env: example
+    :END:
+
+#+begin_src clojure
+  (def c (chan (sliding-buffer 10000)))
+
+  (defn -main
+    [& args]
+    (dotimes [x size]
+      (dotimes [y size]
+        (go-loop []
+          (>! c [x y (rand-int 255)])
+          (<! (timeout (rand-int 1000)))
+          (recur))))
+    (q/defsketch core-async-demo
+      :size [(* size scale) (* size scale)]
+      :draw draw))
+#+end_src
+
+** go/go-loop
+
+*** go + loop                                               :B_example:BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :BEAMER_env: example
+    :END:
+#+begin_src clojure
+  (go
+    (loop [x a y b]
+      ; do something
+      (recur c d)))
+#+end_src
+
+*** go-loop                                                 :B_example:BMCOL:
+    :PROPERTIES:
+    :BEAMER_env: example
+    :BEAMER_col: 0.45
+    :END:
+#+begin_src clojure
+  (go-loop [x a y b]
+    ; do something
+    (recur c d))
+#+end_src
+
+
+
+** Go blocks (recap)
+
+*** Quil                                                          :B_example:
+    :PROPERTIES:
+    :BEAMER_env: example
+    :END:
+
+#+begin_src clojure
+  (def c (chan (sliding-buffer 10000)))
+
+  (defn -main
+    [& args]
+    (dotimes [x size]
+      (dotimes [y size]
+        (go-loop []
+          (>! c [x y (rand-int 255)])
+          (<! (timeout (rand-int 1000)))
+          (recur))))
+    (q/defsketch core-async-demo
+      :size [(* size scale) (* size scale)]
+      :draw draw))
+#+end_src
+    
+
+** alt!!
+
+*** Channels                                                  :B_block:BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :BEAMER_env: block
+    :END:
+
+#+begin_src dot :file multiple-channels.eps
+  digraph mixing {
+    rankdir = "LR"
+    c1 [shape = box, label = "c1"]
+    c2 [shape = box, label = "c2"]
+    bt1 [shape = box, label = "<!!"]
+    bt2 [shape = box, label = "<!!"]
+    c1 -> bt1
+    c2 -> bt2
+  }
+    
+#+end_src
+
+#+attr_latex: :height 0.3\textheight
+#+results:
+
+*** alt!!                                                     :B_block:BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :BEAMER_env: block
+    :END:
+
+#+begin_src dot :file alt-blocking.eps
+  digraph mixing {
+    rankdir = "LR"
+    c1 [shape = box, label = "c1"]
+    c2 [shape = box, label = "c2"]
+    altblocking [shape = box, label = "alt!!"]
+    c1 -> altblocking
+    c2 -> altblocking
+  }
+    
+#+end_src
+
+#+attr_latex: :height 0.3\textheight
+#+results:
+
+** alt!
+
+*** alt!                                                      :B_block:BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :BEAMER_env: block
+    :END:
+
+#+begin_src dot :file alt-blocking-go.eps
+  digraph mixing {
+    rankdir = "LR"
+    c1 [shape = box, label = "c1"]
+    c2 [shape = box, label = "c2"]
+    altblocking [shape = box, label = "alt!"]
+    c1 -> altblocking
+    c2 -> altblocking
+  }
+    
+#+end_src
+
+#+attr_latex: :height 0.3\textheight
+#+results:
+
+
+*** alt!!                                                     :B_block:BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :BEAMER_env: block
+    :END:
+
+#+begin_src dot :file alt-blocking.eps
+  digraph mixing {
+    rankdir = "LR"
+    c1 [shape = box, label = "c1"]
+    c2 [shape = box, label = "c2"]
+    altblocking [shape = box, label = "alt!!"]
+    c1 -> altblocking
+    c2 -> altblocking
+  }
+    
+#+end_src
+
+#+attr_latex: :height 0.3\textheight
+#+results:
+
+
+** Checkpoint 3
+
+*** Go blocks                                                       :B_block:
+    :PROPERTIES:
+    :BEAMER_env: block
+    :END:
+#+beamer: \Large
++ ~go~, ~go-loop~
++ ~>!~, ~<!~
+
+*** Mixing                                                          :B_block:
+    :PROPERTIES:
+    :BEAMER_env: block
+    :END:
+#+beamer: \Large
++ ~alt!!~, ~alt!~
+
+
+* Summary
+
+** core.async
+
+*** Channel                                                         :B_block:
+    :PROPERTIES:
+    :BEAMER_env: block
+    :END:
+#+beamer: \Large
+~chan~, ~thread~, ~timeout~, ~go~
+
+*** Blocking, Non-blocking                                          :B_block:
+    :PROPERTIES:
+    :BEAMER_env: block
+    :END:
+
+#+beamer: \Large
+~>!!~, ~<!!~, ~put!~, ~take!~, ~>!~, ~<!~
+
+*** Mixing
+#+beamer: \Large
+~alt!!~, ~alt!~
+
+
+
+
+
